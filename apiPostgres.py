@@ -2,6 +2,13 @@ import psycopg2
 import sys
 import pprint
 import os
+import numpy as np
+import matplotlib.pyplot as plt
+import plotly.plotly as py
+from collections import Counter
+import unicodedata
+
+
 
 client_id = str(sys.argv[1])
 contract_id = str(sys.argv[2])
@@ -25,6 +32,9 @@ month_dict = {
 	12 : "Decembre"
 	
 }
+
+ticket_dict = {}
+
 #Recovering client ID
 
 #Recovering contract id
@@ -65,8 +75,8 @@ queries.append(query_contract)
 queries.append(query_reporting)
 
 
-values = [ [] , [] , [] , [] , []]
-values_severities = [[] ,[] , [] , []]
+values = [ [] , [] , [] , [] , [] ]
+values_severities = [[] ,[] , [] , [] ]
 
 
 query_closure = []
@@ -121,15 +131,35 @@ def queries_reporting_severities(months):
  
  	i=0
  	while i<months:
- 		query_severity[0].append(""+static_query+str(i)+"and issue_severity like '%Mineure%'")
- 		query_severity[1].append(""+static_query+str(i)+"and issue_severity like '%Majeure%'")
- 		query_severity[2].append(""+static_query+str(i)+"and (issue_severity ='Bloquante' or issue_severity='3 anomalie bloquante')")
+ 		query_severity[0].append(""+static_query+str(i)+"and issue_severity like '%Mineure%' ;")
+ 		query_severity[1].append(""+static_query+str(i)+"and issue_severity like '%Majeure%' ;")
+ 		query_severity[2].append(""+static_query+str(i)+"and (issue_severity ='Bloquante' or issue_severity='3 anomalie bloquante') ;")
  		i=i+1
 
+def queries_resolution_time(months):
+	
+	query_resolution = [[] , [], [] , []]
+	static_query = " from statistic_ticket st inner join contract ct on ct.id = st.contract_id where st.contract_id = "+contract_id+" and (SELECT extract (year from (select age(current_date , st.creation_date)))) = 0 and (select extract (month from (select age (current_date , st.creation_date)))) <= "+str(months)
+	positive = "and st.close_date is not null and (st.fix_sla_target >= st.fix_duration) ;"
+	negative = "and st.close_date is not null and (st.fix_sla_target < st.fix_duration) ;"
+	query_resolution[0].append("select count(st.issue_type) "+static_query+" and st.issue_type like '%information%' "+positive)
+	query_resolution[0].append("select count(st.issue_type) "+static_query+" and st.issue_type like '%information%' "+negative)
 
+	query_resolution[1].append("select count(st.issue_severity) "+static_query+" and st.issue_severity like '%Mineure%' "+positive)
+	query_resolution[1].append("select count(st.issue_severity) "+static_query+" and st.issue_severity like '%Mineure%' "+negative)
+	
+	query_resolution[2].append("select count(st.issue_severity) "+static_query+" and st.issue_severity like '%Majeure%' "+positive)
+	query_resolution[2].append("select count(st.issue_severity) "+static_query+" and st.issue_severity like '%Majeure%' "+negative)
+
+	query_resolution[3].append("select count(st.issue_severity) "+static_query+" and (issue_severity ='Bloquante' or issue_severity='3 anomalie bloquante') "+positive)
+	query_resolution[3].append("select count(st.issue_severity) "+static_query+" and (issue_severity ='Bloquante' or issue_severity='3 anomalie bloquante') "+negative)
+
+
+
+	return query_resolution
 
 def queries_closure_list():
-	return 1
+	pass
 
 
 def category_contract_customer(conn):
@@ -220,10 +250,21 @@ def category_severities_tickets(conn , months):
 	return cursor	
 
 
+def category_resolution_time(conn , months):
+	cursor = [ [] , [] , [] , [] ] 
+	query_list = queries_resolution_time(months)
+	i=j=0
+	for i in range(0,4):
+		for j in range(0,2):
+			cursor[i].append(conn.cursor())
+			cursor[i][j].execute(query_list[i][j])
+			j=j+1
+		i=i+1
+	return cursor
 
 def category_closure():
 	queries.append(query_closure)
-	return 1
+	pass
 
 def end_line():
 	output_md.write("\n \n")
@@ -231,8 +272,9 @@ def end_line():
 def tield():
 	output_md.write("~~~")
 
-def img_insert(name , link):
-	output_md.write("!["+name+"]("+link+")"+"\" this is a simple title\"")
+def img_insert(name , link , title):
+	new_slide(title)
+	output_md.write("!["+name+"]("+link+")")
 
 def new_slide(title):
 	output_md.write("## "+title)
@@ -276,7 +318,7 @@ def slide_VLA_creator(title , cursors):
 		i=i+1
 
 
-def slide_flox_tickets(cursor , months):
+def slide_flux_tickets(cursor , months):
 	counter=0
 	
 
@@ -338,6 +380,35 @@ def slide_severities_tickets(cursor , months):
 		output_md.write("** le nombre total de demande est ** : " + str(values_severities[3][counter]))
 		end_line()
 		counter=counter+1
+def percentage(a , b):
+	out = []
+	if a == b == 0:
+		return [0 , 0]
+	out.append(a*100/(a+b))
+	out.append(b*100/(a+b))
+	return out
+
+def slide_resolution_time(cursor , months):
+	new_slide("Delai de resolution")
+	list_types = ["Information" , "Anomalie Mineure" , "Anomalie Majeure" , "Anomalie Bloquante"]
+	details = [[] , [] , [] , []]		
+
+
+	i=0
+	for i in range(0,4):
+		tmp1 = c[i][0].fetchone()[0]
+		tmp2 = c[i][1].fetchone()[0]
+		details[i].append(list_types[i])
+		details[i].append(tmp1+tmp2)
+		details[i].append(percentage(tmp1 , tmp2)[0])
+		output_md.write(str(details[i][0])+"  ==>  "+str(details[i][1]) +"  ==>  "+str(details[i][2])+"%")
+		end_line()
+		i=i+1
+
+
+
+	return details
+
 
 def category_one(conn , month):
 	cursor_con = category_contract_customer(conn)
@@ -347,37 +418,102 @@ def category_one(conn , month):
 def category_two(conn , month):
 	cursor_rep = category_flow_tickets(conn , month )
 	cursor_sev = category_severities_tickets(conn , month)
-	slide_flox_tickets(cursor_rep,  month)
+	slide_flux_tickets(cursor_rep,  month)
 	slide_severities_tickets(cursor_sev , month)
-	
+
+def total_tickets(month):
+	tmp1=0
+	tmp2=0
+	tmp3=0
+	tmp4=0
+	tmp5=0
+	total=[]
+	i=0
+	while i<month:
+		tmp1=tmp1+values[0][i]
+		tmp2=tmp2+values_severities[0][i]
+		tmp3=tmp3+values_severities[1][i]
+		tmp4=tmp4+values_severities[2][i]
+		tmp5=tmp5+values[2][i]
+		i=i+1
+	total.append(tmp1)
+	total.append(tmp2)
+	total.append(tmp3)
+	total.append(tmp4)
+	total.append(tmp5)
+
+	return total
+
+
+def graph_flow_generator(total):
+	ticket_dict["Information"] = total[0]
+	ticket_dict["Mineure"]=total[1]
+	ticket_dict["Majeure"]=total[2]
+	ticket_dict["Bloquante"]=total[3]
+	ticket_dict["Autre"]=total[4]
+
+	fig=plt.figure(figsize=(5 , 3))
+	ax = fig.add_subplot(111)
+
+	frequencies = ticket_dict.values()
+	names = ticket_dict.keys()
+
+	x_coordinates = np.arange(len(ticket_dict))
+	ax.bar(x_coordinates, frequencies, align='center')
+
+	ax.xaxis.set_major_locator(plt.FixedLocator(x_coordinates))
+	ax.xaxis.set_major_formatter(plt.FixedFormatter(names))
+
+	plt.savefig("flow"+contract_id+".png")
+	# plt.show()
+
+	img_insert("Repartition des demandes" , "flow"+contract_id+".svg" , "Repartition des demandes")
+
+def graph_resolution_time_generator():
+	pass
+def graph_evolution_tickets_generator():
+	pass
+def graph_open_closed_generatore():	
+	pass	
 
 def convert_odpdown(fileMD , template):
 	os.system("odpdown "+fileMD +" "+ template +" " +contract_id+"report.odp")	
 
 
-
+def showODP_File():
+	os.system("libreoffice "+contract_id+"report.odp")
 
 
 
 
 if __name__=="__main__":
 	conn = connexion_db()
+	c = category_resolution_time(conn , month_rep)
+	details = slide_resolution_time(c , month_rep)
+		
 	
-	
+	# for i in range(0 , 4):
+	# 	for j in range(0 , 3):
+	# 		print details[i][j]
+	# category_one(conn , month_rep)
+	# category_two(conn , month_rep)
 
-	category_one(conn , month_rep)
-	category_two(conn , month_rep)
+	# total=total_tickets(month_rep)
+	# # i=0
+	# # while i< len(total):
+	# # 	print total[i]
+	# # 	i=i+1
+	# graph_flow_generator(total)
 
-	
-
-
-	# contract_writer(result)
+	# # contract_writer(result)
 	
 
 
 	output_md.close()
 	
 	convert_odpdown(""+contract_id+".md" , "tmplt.odp")
+
+	showODP_File()
 
 
 
