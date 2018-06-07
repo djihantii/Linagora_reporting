@@ -197,24 +197,18 @@ def category_flow_tickets(conn , months):
 	while counter<months:
 		cursor_information.append(conn.cursor())
 		cursor_information[counter].execute(queries[1][0][counter])
-		counter=counter+1
-	counter = 0
-	while counter<months:
+		
 		cursor_anomalie.append(conn.cursor())
 		cursor_anomalie[counter].execute(queries[1][1][counter])
-		counter=counter+1
-	counter=0
-	while counter<months:
+		
 		cursor_autre.append(conn.cursor())
 		cursor_autre[counter].execute(queries[1][2][counter])
-		counter=counter+1
-
-	counter=0
-	while counter<months:
+		
 		cursor_month.append(conn.cursor())
 		cursor_month[counter].execute(queries[1][3][counter])
-		# print month_dict[cursor_month[counter].fetchone()[0]]
+		
 		counter=counter+1
+	
 
 	cursor.append(cursor_information)
 	cursor.append(cursor_anomalie)
@@ -231,20 +225,14 @@ def category_severities_tickets(conn , months):
 	while counter<months:
 		cursor[0].append(conn.cursor())
 		cursor[0][counter].execute(query_severity[0][counter])
-		counter=counter+1
+		
 	
-
-	counter = 0
-	while counter<months:
 		cursor[1].append(conn.cursor())
 		cursor[1][counter].execute(query_severity[1][counter])
-		counter=counter+1
 
-	
-	counter = 0
-	while counter<months:
 		cursor[2].append(conn.cursor())
 		cursor[2][counter].execute(query_severity[2][counter])
+	
 		counter=counter+1
 	
 	return cursor	
@@ -275,7 +263,7 @@ def tield():
 def img_insert(name , link , title):
 	new_slide(title)
 	output_md.write("!["+name+"]("+link+")")
-
+	end_line()
 def new_slide(title):
 	output_md.write("## "+title)
 	end_line()
@@ -390,25 +378,31 @@ def percentage(a , b):
 
 def slide_resolution_time(cursor , months):
 	new_slide("Delai de resolution")
-	list_types = ["Information" , "Anomalie Mineure" , "Anomalie Majeure" , "Anomalie Bloquante"]
-	details = [[] , [] , [] , []]		
-
+	list_types = ["** Information **" , "** Anomalie Mineure **" , "** Anomalie Majeure **" , "** Anomalie Bloquante **"]
+	details = [[] , [] , [] , [] , []  ]		
+	
+	output_md.write("** Type de demande ** => ** Nombre de tickets ** => ** delais respectes ** ")
+	end_line()
 
 	i=0
 	for i in range(0,4):
-		tmp1 = c[i][0].fetchone()[0]
-		tmp2 = c[i][1].fetchone()[0]
+		positive_time = c[i][0].fetchone()[0]
+		negative_time = c[i][1].fetchone()[0]
 		details[i].append(list_types[i])
-		details[i].append(tmp1+tmp2)
-		details[i].append(percentage(tmp1 , tmp2)[0])
-		output_md.write(str(details[i][0])+"  ==>  "+str(details[i][1]) +"  ==>  "+str(details[i][2])+"%")
-		end_line()
-		i=i+1
+		details[i].append(positive_time)
+		details[i].append(negative_time)
+		details[i].append(positive_time+negative_time)
+		details[i].append(percentage(positive_time , negative_time)[0])
+		output_md.write(str(details[i][0])+"  ======>  ")
+		output_md.write(str(details[i][3])+"  ==========>   ")
+		output_md.write(str(details[i][4])+"%")
+		end_line()		
+
+
 
 
 
 	return details
-
 
 def category_one(conn , month):
 	cursor_con = category_contract_customer(conn)
@@ -420,6 +414,7 @@ def category_two(conn , month):
 	cursor_sev = category_severities_tickets(conn , month)
 	slide_flux_tickets(cursor_rep,  month)
 	slide_severities_tickets(cursor_sev , month)
+	graph_flow_generator(total_tickets(month_rep))
 
 def total_tickets(month):
 	tmp1=0
@@ -452,7 +447,7 @@ def graph_flow_generator(total):
 	ticket_dict["Bloquante"]=total[3]
 	ticket_dict["Autre"]=total[4]
 
-	fig=plt.figure(figsize=(5 , 3))
+	fig=plt.figure()
 	ax = fig.add_subplot(111)
 
 	frequencies = ticket_dict.values()
@@ -464,13 +459,39 @@ def graph_flow_generator(total):
 	ax.xaxis.set_major_locator(plt.FixedLocator(x_coordinates))
 	ax.xaxis.set_major_formatter(plt.FixedFormatter(names))
 
-	plt.savefig("flow"+contract_id+".png")
+	plt.savefig("flow"+contract_id+".svg")
 	# plt.show()
 
 	img_insert("Repartition des demandes" , "flow"+contract_id+".svg" , "Repartition des demandes")
 
-def graph_resolution_time_generator():
-	pass
+def graph_resolution_time_generator(details):
+	number_respected = 0
+	number_non_respected = 0
+	
+	for i in range(1 , 4):
+		number_respected = number_respected+details[i][1]
+		number_non_respected = number_non_respected+ details[i][2]
+
+	labels = ['respectes' , 'hors delai']
+	sizes = [number_respected , number_non_respected]
+	explode=(0 , 0)
+
+	fig1 , ax1 = plt.subplots()
+	ax1.pie(sizes, explode=explode, labels=labels, autopct='%1.1f%%',
+        shadow=True, startangle=90)
+	ax1.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+	plt.savefig(contract_id+"resolution_support.svg")
+
+	sizes = [details[0][1] , details[0][2]]
+	fig2, ax2 = plt.subplots()
+	ax2.pie(sizes, explode=explode, labels=labels, autopct='%1.1f%%',
+        shadow=True, startangle=90)
+	ax2.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+	plt.savefig(contract_id+"resolution_information.svg")
+	
+	img_insert("Informations" , contract_id+"resolution_information.svg" , "Delai des informations")
+	img_insert("Anomalies" , contract_id+"resolution_support.svg" , "Delai des anomalies")
+	
 def graph_evolution_tickets_generator():
 	pass
 def graph_open_closed_generatore():	
@@ -488,15 +509,15 @@ def showODP_File():
 
 if __name__=="__main__":
 	conn = connexion_db()
+	category_one(conn , month_rep)
+	category_two(conn , month_rep)
 	c = category_resolution_time(conn , month_rep)
 	details = slide_resolution_time(c , month_rep)
-		
+	graph_resolution_time_generator(details)
 	
 	# for i in range(0 , 4):
 	# 	for j in range(0 , 3):
 	# 		print details[i][j]
-	# category_one(conn , month_rep)
-	# category_two(conn , month_rep)
 
 	# total=total_tickets(month_rep)
 	# # i=0
@@ -507,7 +528,7 @@ if __name__=="__main__":
 
 	# # contract_writer(result)
 	
-
+	#graph_resolution_time_generator(details)
 
 	output_md.close()
 	
